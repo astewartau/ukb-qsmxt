@@ -1,0 +1,156 @@
+# ukb-qsmxt
+
+Pipeline for processing UK Biobank susceptibility-weighted imaging (SWI) data with [QSMxT](https://github.com/QSMxT/QSMxT) and comparing Quantitative Susceptibility Mapping (QSM) outputs against the UK Biobank in-house QSM pipeline.
+
+## Research Question
+
+Does the choice of QSM processing algorithm matter for genetic inference? We compare QSMxT against the UK Biobank in-house QSM pipeline (v1.5) to determine whether pipeline choice affects GWAS results on image-derived phenotypes (IDPs).
+
+## Data Overview
+
+This pipeline operates on UK Biobank bulk data stored on the QRIS HPC system (`/QRISdata/`).
+
+### Input Data (UKB Bulk Fields)
+
+| Field | Description | Path | Unique Subjects |
+|---|---|---|---|
+| 20219 | SWI DICOMs (input for QSMxT) | `/QRISdata/Q8577/bulk/20219/batch_*/` | ~76,700 |
+| 20252 | T1 structural + FIRST/FAST segmentations + MNI warp | `/QRISdata/Q7990/bulk/20252*/batch_*/` | ~66,800 |
+| 20253 | T1 structural brain images (NIFTI) | `/QRISdata/Q7990/bulk/20253*/batch_*/` | ~65,600 |
+| 20263 | FreeSurfer outputs | `/QRISdata/Q7990/bulk/20263/20263_part_*/batch_*/` | ~59,900 |
+| 20251 | SWI registration matrices (SWI-to-T1) | `/QRISdata/Q7990/bulk/20251/batch_*/` | ~57,800 |
+| 26301 | UKB-pipeline processed QSM | `/QRISdata/Q8577/bulk/26301/batch_*/` | ~57,200 |
+
+Zip filename convention: `{subject_eid}_{field}_{instance}_{array_index}.zip`
+
+Fields 20252 and 20253 have extended downloads in `_ASHLEY` suffixed directories containing the majority of the data.
+
+### Output Data
+
+| Collection | Path | Description |
+|---|---|---|
+| Q9014 | `/QRISdata/Q9014/QSMxT/` | QSMxT-processed results (~4,834 subjects) |
+| Q9014 | `/QRISdata/Q9014/merge_clean_qsmxt_idps.csv` | Merged QSMxT IDPs |
+| Q9014 | `/QRISdata/Q9014/merge_clean_ukb_idps.csv` | Merged UKB pipeline IDPs |
+
+### Subject Overlap
+
+| Combination | Subjects |
+|---|---|
+| SWI + T1 (minimum for pipeline) | ~61,500 |
+| SWI + T1 + UKB_QSM + SWI_reg (core comparison set) | ~56,800 |
+| Above + FreeSurfer | ~52,400 |
+| QSMxT processed so far | ~4,834 |
+
+~4,400 subjects have all core fields but are missing FreeSurfer. Of those, ~4,400 have T1 NIFTI (field 20253) suitable for running FastSurfer `--seg_only`.
+
+## Pipeline Scripts
+
+### Primary IDP Extraction (UKB-compatible)
+
+These scripts closely replicate the UK Biobank methodology for direct pipeline comparison:
+
+| Script | Purpose |
+|---|---|
+| `generate_idp_txt.sh` | Extract 16 QSM IDPs (14 subcortical + 2 SN) using FSL FIRST segmentation and SN atlas masks. Matches UKB `bb_QSM_IDPs` methodology. |
+| `mni_registration.slurm` | SLURM array job: register both UKB and QSMxT QSM maps to MNI space using the UKB T1-mediated nonlinear warp. |
+
+### Extended Region-wise Analysis (FreeSurfer-based)
+
+These scripts provide additional regions beyond the UKB pipeline:
+
+| Script | Purpose |
+|---|---|
+| `extract_qsm_per_region.py` | Extract QSM values from FreeSurfer `aseg.mgz` segmentation (14 subcortical regions with 2D erosion), bilateral SN from atlas masks, plus WM and WMH measures from FLAIR lesion masks. |
+| `region-wise.slurm` | SLURM array job: FreeSurfer-based region-wise analysis with ANTs registration and UKB nonlinear MNI warp. |
+
+### End-to-End Processing
+
+| Script | Purpose |
+|---|---|
+| `qsm_process.slurm` | Full pipeline: DICOM extraction, BIDS conversion, QSMxT processing, registration, region-wise IDP extraction. |
+| `register_mag_to_t1.sh` | Register SWI magnitude to T1 space using ANTs (with optional Julia-based homogeneity correction). |
+
+### Other
+
+| Script | Purpose |
+|---|---|
+| `bb_QSM_IDPs` | Copy of the official UKB QSM IDP extraction script (reference). |
+| `flair_segmentation_viewer.py` | Visualization tool for FLAIR images with segmentation overlays. |
+
+## Configuration
+
+All SLURM scripts use environment variables for configuration with sensible defaults. Key variables:
+
+```bash
+# Environment
+CONDA_ENV=qsmxt                # Conda environment name
+
+# Paths
+DATA_DIR=./data                # Directory containing atlas files (SN masks, MNI template, first_data.txt)
+SCRATCH_DIR=/scratch/user/$USER  # Local scratch for temp processing
+SUBJECT_LIST=ids_multi_sessions_20219.txt  # Subject ID list
+
+# UKB bulk data locations
+UKB_T1_DIR=/QRISdata/Q7990/bulk/20252_ASHLEY
+UKB_FS_DIR=/QRISdata/Q7990/bulk/20263
+UKB_WMH_DIR=/QRISdata/Q7990/bulk/20253_ASHLEY
+UKB_SWI_DICOM_DIR=/QRISdata/Q8577/bulk/20219
+UKB_QSM_DIR=/QRISdata/Q8577/bulk/26301
+UKB_SWI_DIR=/QRISdata/Q7990/bulk/20251
+QSMXT_OUTPUT_DIR=/QRISdata/Q9014/QSMxT
+```
+
+### Required Data Files
+
+The `DATA_DIR` (default: `./data/`) must contain:
+- `first_data.txt` -- FSL FIRST structure labels (structure name, lower threshold, upper threshold)
+- `SN_mask_Left.nii.gz` -- Left substantia nigra mask in MNI space
+- `SN_mask_Right.nii.gz` -- Right substantia nigra mask in MNI space
+- `MNI152_T1_1mm.nii.gz` -- MNI152 1mm template
+- `MNI152_T1_1mm_brain_mask.nii.gz` -- MNI152 brain mask
+
+## IDP Output Format
+
+### UKB-compatible IDPs (`generate_idp_txt.sh`)
+
+16 space-separated median QSM values (CSF-referenced, ppm):
+
+```
+L-Thalamus R-Thalamus L-Caudate R-Caudate L-Putamen R-Putamen
+L-Pallidum R-Pallidum L-Hippocampus R-Hippocampus L-Amygdala R-Amygdala
+L-Accumbens R-Accumbens L-SN R-SN
+```
+
+### Extended IDPs (`extract_qsm_per_region.py`)
+
+CSV with columns: `subject, session, Left-Thalamus-Proper, ..., Right-Accumbens-area, SN_L, SN_R, WMH, WM, WM_no_lesions, Diff-WM, Diff-WM-no-lesions`
+
+## Methodology Notes
+
+### Matching the UKB Pipeline
+
+The IDP extraction (`generate_idp_txt.sh`) replicates the UKB pipeline methodology:
+- **Registration:** FSL FLIRT with pre-computed `SWI_to_T1.mat` (spline interpolation)
+- **MNI warp:** FSL `applywarp` with UKB's `T1_to_MNI_warp_coef.nii.gz` (nonlinear)
+- **Segmentation:** FSL FIRST (`T1_first_all_fast_firstseg.nii.gz`), thresholded and 2D-eroded
+- **CSF referencing:** Subtraction of CSF QSM value estimated via 3-component mixture model
+- **SN extraction:** Atlas masks in MNI space, positive-QSM-only voxels, median
+- **Brain masking:** Applied in both T1 and MNI space
+
+### Extended Analysis Differences
+
+The FreeSurfer-based path (`extract_qsm_per_region.py` + `region-wise.slurm`) uses:
+- FreeSurfer `aseg.mgz` for subcortical segmentation (with 2D erosion to match UKB)
+- ANTs for magnitude-to-T1 registration (with optional homogeneity correction)
+- UKB nonlinear warp for MNI registration when available, ANTs SyN as fallback
+- Additional WM and WMH QSM measures from FLAIR lesion masks
+
+## Dependencies
+
+- [QSMxT](https://github.com/QSMxT/QSMxT)
+- FSL (FLIRT, applywarp, fslmaths, fslstats, FIRST)
+- FreeSurfer (mri_convert, recon-all outputs)
+- ANTs (antsRegistration, antsApplyTransforms, antsRegistrationSyNQuick.sh)
+- Python: nibabel, numpy, scipy
+- Julia + MriResearchTools (optional, for magnitude homogeneity correction)
