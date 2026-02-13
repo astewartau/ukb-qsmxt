@@ -1,0 +1,32 @@
+UKB-QSMxT Subject List Summary
+Generated: 2026-02-13T16:39:13+10:00
+
+== Per-Field Counts ==
+SWI DICOMs (20219):          76705
+T1 FIRST/FAST (20252):       66770
+T1 NIFTI (20253):            65586
+FreeSurfer (20263):           59908
+SWI registration (20251):    57837
+UKB QSM processed (26301):   57172
+QSMxT processed:             4834
+
+== Key Intersections ==
+SWI + T1:                              61532
+SWI + T1 + UKB_QSM:                    56848
+SWI + T1 + UKB_QSM + SWI_reg (core):   56840
+Core + FreeSurfer:                      52455
+
+== Gap Analysis ==
+Core but MISSING FreeSurfer:            4385
+  ...with T1 NIFTI for FastSurfer:      4362
+
+== QSMxT Processing Progress ==
+QSMxT processed in core set:            4754
+QSMxT processed in core + FreeSurfer:   4743
+Core NOT yet QSMxT-processed:           52086
+
+== Output Files ==
+Per-field subject lists:      field_*.txt
+Key intersections:            intersection_*.txt
+Gap analysis:                 core_missing_*.txt
+QSMxT overlap:                qsmxt_*.txt
