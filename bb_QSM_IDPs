@@ -1,0 +1,239 @@
+#!/bin/bash
+
+set -x
+
+subj=$1;
+GDC=$2;
+
+export QSMDir="${BB_BIN_DIR}/bb_QSM_pipeline/"
+
+#TODO:
+#Check if all files exist (if not, create them)
+
+#
+# Take QSM to T1 space (Different methods depending on the use of GDC):
+#
+if [ "${GDC}" == "1" ] ; then
+    #apply GDC to SWI and then tranform to T1 space
+    ${FSLDIR}/bin/applywarp \
+        --rel -i $1/SWI/QSM/QSM.nii.gz \
+        -r $1/T1/T1.nii.gz \
+        -o $1/SWI/QSM/QSM_to_T1.nii.gz \
+        -w $1/SWI/${GDCwarp}.nii.gz \
+        --postmat=$1/SWI/SWI_to_T1.mat \
+        --interp=spline
+else
+    ${FSLDIR}/bin/flirt \
+        -in $1/SWI/QSM/QSM.nii.gz \
+        -ref $1/T1/T1.nii.gz \
+        -applyxfm -init $1/SWI/SWI_to_T1.mat \
+        -out $1/SWI/QSM/QSM_to_T1.nii.gz \
+        -interp spline
+fi
+
+#
+#masking
+#
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM_to_T1.nii.gz \
+    -mul $1/T1/T1_brain_mask.nii.gz \
+    $1/SWI/QSM/QSM_to_T1.nii.gz
+
+#
+#CSF
+#
+
+if [ ! -f $1/T1/T1_unbiased_ventmask.nii.gz ] ; then 
+    pushd $1/T1/;
+    ${FSLDIR}/bin/make_bianca_mask \
+        T1_unbiased.nii.gz \
+        T1_fast/T1_brain_pve_0.nii.gz \
+        transforms/T1_to_MNI_warp_coef_inv.nii.gz;
+    popd;
+fi
+
+${FSLDIR}/bin/fslmaths \
+    $1/T2_FLAIR/lesions/T1_unbiased_ventmask.nii.gz \
+    -kernel sphere 1 -ero -bin \
+    -mul $1/SWI/QSM/QSM_to_T1.nii.gz \
+    $1/SWI/QSM/ROI_QSM_CSF
+
+rm $1/SWI/QSM/QSM_to_T1.nii.gz
+
+source $BB_BIN_DIR/bb_python/bb_python_asl_ukbb/bin/activate
+${QSMDir}/Mix_Mod_IDPs_CSF.py \
+    -id $1/SWI/QSM \
+    -codedir ${QSMDir}/Python_Scripts
+deactivate
+
+rm $1/SWI/QSM/ROI_QSM_CSF.nii.gz
+
+#
+# Produce QSM subcortical and T2* SN IDPs
+#
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM.nii.gz -abs -bin \
+    $1/SWI/QSM/QSM_final_mask.nii.gz
+
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM.nii.gz \
+    -sub `cat $1/SWI/QSM/QSM_CSF.txt` \
+    $1/SWI/QSM/QSM_CSFref.nii.gz
+
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM_CSFref.nii.gz \
+    -mul $1/SWI/QSM/QSM_final_mask.nii.gz \
+    $1/SWI/QSM/QSM_CSFref.nii.gz
+
+rm $1/SWI/QSM/QSM_final_mask.nii.gz
+
+
+if [ "${GDC}" == "1" ] ; then
+    #apply GDC to SWI and then tranform to T1 space
+    ${FSLDIR}/bin/applywarp \
+        --rel -i $1/SWI/QSM/QSM_CSFref.nii.gz \
+        -r $1/T1/T1.nii.gz \
+        -o $1/SWI/QSM/QSM_CSFref_to_T1.nii.gz \
+        -w $1/SWI/${GDCwarp}.nii.gz \
+        --postmat=$1/SWI/SWI_to_T1.mat 
+        --interp=spline
+else
+    ${FSLDIR}/bin/flirt \
+        -in $1/SWI/QSM/QSM_CSFref.nii.gz \
+        -ref $1/T1/T1.nii.gz \
+        -applyxfm -init $1/SWI/SWI_to_T1.mat \
+        -out $1/SWI/QSM/QSM_CSFref_to_T1.nii.gz \
+        -interp spline
+fi
+
+#
+#masking
+#
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM_CSFref_to_T1.nii.gz \
+    -mul $1/T1/T1_brain_mask.nii.gz \
+    $1/SWI/QSM/QSM_CSFref_to_T1.nii.gz
+
+#
+#SWI to MNI
+#
+if [ "${GDC}" == "1" ] ; then
+    #apply GDC to SWI and then tranform to T1 space
+    ${FSLDIR}/bin/convertwarp \
+        --ref=${FSLDIR}/data/standard/MNI152_T1_1mm \
+        --warp1=$1/SWI/${GDCwarp}.nii.gz \
+        --midmat=$1/SWI/SWI_to_T1.mat \
+        --warp2=$1/T1/transforms/T1_to_MNI_warp.nii.gz \
+        --out=$1/SWI/QSM/SWI_to_MNI_warp
+
+    ${FSLDIR}/bin/applywarp \
+        --rel -i $1/SWI/QSM/QSM_CSFref.nii.gz \
+        -r ${FSLDIR}/data/standard/MNI152_T1_1mm \
+        -w $1/SWI/QSM/SWI_to_MNI_warp \
+        -o $1/SWI/QSM/QSM_CSFref_to_MNI \
+        --interp=spline
+else
+    ${FSLDIR}/bin/applywarp \
+        --rel -i $1/SWI/QSM/QSM_CSFref.nii.gz \
+        -r ${FSLDIR}/data/standard/MNI152_T1_1mm \
+        -w $1/T1/transforms/T1_to_MNI_warp.nii.gz \
+        -o $1/SWI/QSM/QSM_CSFref_to_MNI \
+        --premat=$1/SWI/SWI_to_T1.mat \
+        --interp=spline
+fi
+
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM_CSFref_to_MNI \
+    -mul ${QSMDir}/data/MNI152_T1_1mm_brain_mask \
+    $1/SWI/QSM/QSM_CSFref_to_MNI
+rm $1/SWI/QSM/SWI_to_MNI_warp.nii.gz
+
+#
+#FSL_IDPs
+#
+while read STRUCT THR1 THR2 ; do
+    ${FSLDIR}/bin/fslmaths \
+        $1/T1/T1_first/T1_first_all_fast_firstseg.nii.gz \
+        -thr ${THR1} -uthr ${THR2} -bin -kernel 2D -ero -bin \
+        -mul $1/SWI/QSM/QSM_CSFref_to_T1.nii.gz \
+        $1/SWI/QSM/ROI_QSM_${STRUCT}
+done < ${QSMDir}/data/first_data.txt
+
+#
+#SN MASK
+#
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM_CSFref_to_MNI.nii.gz \
+    -mul ${QSMDir}/data//SN_mask_Left.nii.gz \
+    -thr 0 -bin \
+    $1/SWI/QSM/SN_positive_mask_Left
+
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM_CSFref_to_MNI.nii.gz \
+    -mul ${QSMDir}/data//SN_mask_Right.nii.gz \
+    -thr 0 -bin \
+    $1/SWI/QSM/SN_positive_mask_Right
+
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM_CSFref_to_MNI.nii.gz \
+    -mul $1/SWI/QSM/SN_positive_mask_Right.nii.gz \
+    $1/SWI/QSM/QSM_SN_R.nii.gz
+
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/QSM/QSM_CSFref_to_MNI.nii.gz \
+    -mul $1/SWI/QSM/SN_positive_mask_Left.nii.gz \
+    $1/SWI/QSM/QSM_SN_L.nii.gz
+
+vals=""
+for STRUCT in `cat ${QSMDir}/data/first_data.txt | awk '{print $1}'` ; do
+    vals="${vals} `${FSLDIR}/bin/fslstats $1/SWI/QSM/ROI_QSM_${STRUCT}.nii.gz -P 50`"
+done
+
+val15=`${FSLDIR}/bin/fslstats $1/SWI/QSM/QSM_SN_L.nii.gz -P 50` 
+val16=`${FSLDIR}/bin/fslstats $1/SWI/QSM/QSM_SN_R.nii.gz -P 50` 
+
+echo "${vals} ${val15} ${val16}" > $1/SWI/QSM/QSM_CSFref_IDPs.txt
+
+rm $1/SWI/QSM/ROI_*R.nii.gz 
+rm $1/SWI/QSM/ROI_*L.nii.gz
+rm $1/SWI/QSM/QSM_SN_?.nii.gz
+
+#
+# T2* SN IDPs
+#
+if [ ! -f $1/SWI/T2star_to_MNI.nii.gz ] ; then
+    if [ -f $1/T1/transforms/T1_to_MNI_warp.nii.gz ] ; then
+        if [ -f $1/SWI/SWI_to_T1.mat ] ; then
+            ${FSLDIR}/bin/applywarp \
+                --rel \
+                -i $1/SWI/T2star.nii.gz \
+                -r $FSLDIR/data/standard/MNI152_T1_1mm.nii.gz \
+                -o $1/SWI/T2star_to_MNI.nii.gz \
+                --premat=$1/SWI/SWI_to_T1.mat \
+                -w $1/T1/transforms/T1_to_MNI_warp.nii.gz \
+                --interp=trilinear
+        fi
+    fi
+fi
+
+
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/T2star_to_MNI.nii.gz \
+    -mul $1/SWI/QSM/SN_positive_mask_Right.nii.gz \
+    $1/SWI/QSM/T2star_SN_R.nii.gz
+
+${FSLDIR}/bin/fslmaths \
+    $1/SWI/T2star_to_MNI.nii.gz \
+    -mul $1/SWI/QSM/SN_positive_mask_Left.nii.gz \
+    $1/SWI/QSM/T2star_SN_L.nii.gz
+
+val1=`${FSLDIR}/bin/fslstats $1/SWI/QSM/T2star_SN_L.nii.gz -P 50` 
+val2=`${FSLDIR}/bin/fslstats $1/SWI/QSM/T2star_SN_R.nii.gz -P 50` 
+
+echo "${val1} ${val2}" > $1/SWI/QSM/T2star_IDPs_SN.txt
+
+rm $1/SWI/QSM/T2star_SN_?.nii.gz
+rm $1/SWI/QSM/SN_positive_mask_Left.nii.gz
+rm $1/SWI/QSM/SN_positive_mask_Right.nii.gz
+
+
