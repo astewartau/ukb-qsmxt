@@ -1,5 +1,5 @@
 #!/bin/bash --login
-#SBATCH --job-name=first-two
+#SBATCH --job-name=final-pipeline
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -24,8 +24,6 @@ ID=${repeated_ID[$SLURM_ARRAY_TASK_ID-1]}
 echo "Job $SLURM_ARRAY_TASK_ID finds ID : $ID"
 
 DEST="/home/uqclauve/data/UKB_PROCESSING/${ID}"
-
-
 
 ## FIND T1 & FIRST/FAST 
 
@@ -53,7 +51,7 @@ for zipfile in "${CHEMIN_T1[@]}"; do
 
     local_zip="/scratch/user/uqclauve/$(basename "$zipfile")"
     rsync -ah --progress "$zipfile" "$local_zip"
-    unzip -j "$local_zip" "*/T1.nii.gz" "*/T1_first_all_fast_firstseg.nii.gz" "*/T1_brain_mask.nii.gz" "*/T1_to_MNI_warp_coef.nii.gz" "*/T1_brain_bias.nii.gz" "*/T1_brain_pve_0.nii.gz" "*/T1_unbiased_brain.nii.gz" -d "$DEST/ses-${instance}/"
+    unzip -j "$local_zip" "*/T1.nii.gz" "*/T1_first_all_fast_firstseg.nii.gz" "*/T1_brain_seg.nii.gz" "*/T1_brain_mask.nii.gz" "*/T1_to_MNI_warp_coef.nii.gz" "*/T1_brain_bias.nii.gz" "*/T1_brain_pve_0.nii.gz" "*/T1_unbiased_brain.nii.gz" -d "$DEST/ses-${instance}/"
     rm "$local_zip"
 done
 
@@ -99,25 +97,21 @@ for zipfile in "${CHEMIN_SWI[@]}"; do
 done
 
 
-## LESIONS FILES
+## FREE SURFER SEG
 
-CHEMIN_WMH=($(find /QRISdata/Q7990/bulk/20253_ASHLEY/batch_* -name "*${ID}*.zip"))
+CHEMIN_FREE=($(find /QRISdata/Q7990/bulk/20263/batch_* -name "*${ID}*.zip"))
 
-for zipfile in "${CHEMIN_WMH[@]}"; do
-
-    echo "Processing: $zipfile"
+for zipfile in "${CHEMIN_FREE[@]}"; do
+    echo "Extracting SWI from: $zipfile"
     instance=$(basename "$zipfile" | cut -d'_' -f3)
     instance=$((instance - 1))
     echo " → Session : $instance"
 
-    DEST_FINAL="$DEST/ses-${instance}/T2_FLAIR/"
-    mkdir -p "$DEST_FINAL"
-    local_zip="$DEST/ses-${instance}/$(basename "$zipfile")"
+    local_zip="/scratch/user/uqclauve/$(basename "$zipfile")"
     rsync -ah --progress "$zipfile" "$local_zip"
-    unzip -j "$local_zip" "*/T2_FLAIR.nii.gz" "*/lesions/final_mask.nii.gz" -d "$DEST_FINAL"
+    unzip -j "$local_zip" "*/mri/aseg.mgz" -d "$DEST/ses-${instance}/"
     rm "$local_zip"
 done
-
 
 
 mapfile -t SESSIONS < <(
@@ -147,7 +141,6 @@ for date in "${SESSIONS[@]}"; do
     cp "$DEST/ses-${i}/UKB_CSFref_to_MNI.nii.gz" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
     cp "$DEST/ses-${i}/QSMxT_CSFref_to_MNI.nii.gz" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
     cp "$DEST/ses-${i}/QSMxT_CSF.txt" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
-    #cp "$DEST/ses-${i}/QSMxT_CSFref.nii.gz" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
 
     cp "${DEST}/ses-${i}/UKBQSM_CSFref_IDPs.txt" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}"
     cp "${DEST}/ses-${i}/QSMxT_CSFref_IDPs.txt" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}"

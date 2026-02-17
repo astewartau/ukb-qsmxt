@@ -75,7 +75,19 @@ fslmaths "$DEST/ses-${instance}/${prefix}_CSFref_to_MNI.nii.gz" -mul "$DATA_DIR/
 # Subcortical ROI extraction using FIRST segmentation (matches UKB: threshold, 2D erosion, median)
 while read STRUCT THR1 THR2 ; do
     fslmaths "$DEST/ses-${instance}/T1_first_all_fast_firstseg.nii.gz" -thr ${THR1} -uthr ${THR2} -bin -kernel 2D -ero -bin -mul "$DEST/ses-${instance}/${prefix}_CSFref_to_T1.nii.gz" "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}"
-done < "$DATA_DIR/first_data.txt"
+done < "$DATA_DIR/regions_first.txt"
+
+# Subcortical ROI extraction using FAST segmentation (matches UKB: threshold, 2D erosion, median)
+while read STRUCT THR1 THR2 ; do
+    fslmaths "$DEST/ses-${instance}/T1_brain_seg.nii.gz" -thr ${THR1} -uthr ${THR2} -bin -kernel 2D -ero -bin -mul "$DEST/ses-${instance}/${prefix}_CSFref_to_T1.nii.gz" "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}"
+done < "$DATA_DIR/regions_fast.txt"
+
+# Subcortical ROI extraction using FreeSurfer segmentation 
+while read STRUCT THR1 THR2 ; do
+    fslmaths "$DEST/ses-${instance}/aseg.nii.gz" -thr ${THR1} -uthr ${THR2} -bin -kernel 2D -ero -bin -mul "$DEST/ses-${instance}/${prefix}_CSFref_to_T1.nii.gz" "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}"
+done < "$DATA_DIR/regions_free_surfer.txt"
+
+
 
 # SN positive-value masks (matches UKB: multiply QSM by SN mask, threshold > 0, binarize)
 fslmaths \
@@ -101,17 +113,28 @@ fslmaths \
     -mul "$DEST/ses-${instance}/SN_${prefix}_positive_mask_Left.nii.gz" \
     "$DEST/ses-${instance}/${prefix}_SN_L.nii.gz"
 
+
 # Extract median QSM per subcortical ROI
-vals=""
-for STRUCT in $(awk '{print $1}' "$DATA_DIR/first_data.txt") ; do
-    vals="${vals} $(fslstats "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}.nii.gz" -P 50)"
+vals_first=""
+for STRUCT in $(awk '{print $1}' "$DATA_DIR/regions_first.txt") ; do
+    vals_first="${vals} $(fslstats "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}.nii.gz" -P 50)"
+done
+
+vals_fast=""
+for STRUCT in $(awk '{print $1}' "$DATA_DIR/regions_fast.txt") ; do
+    vals_fast="${vals_fast} $(fslstats "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}.nii.gz" -P 50)"
+done
+
+vals_freesurfer=""
+for STRUCT in $(awk '{print $1}' "$DATA_DIR/regions_free_surfer.txt") ; do
+    vals_freesurfer="${vals_fast} $(fslstats "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}.nii.gz" -P 50)"
 done
 
 # Extract median QSM from SN
 val15=$(fslstats "$DEST/ses-${instance}/${prefix}_SN_L.nii.gz" -P 50)
 val16=$(fslstats "$DEST/ses-${instance}/${prefix}_SN_R.nii.gz" -P 50)
 
-echo "${vals} ${val15} ${val16}" > "$DEST/ses-${instance}/${prefix}_CSFref_IDPs.txt"
+echo "${vals_first} ${vals_fast} ${vals_freesurfer} ${val15} ${val16}" > "$DEST/ses-${instance}/${prefix}_CSFref_IDPs.txt"
 
 echo ""
 echo "Extraction finished for ${prefix} session ${instance}."
