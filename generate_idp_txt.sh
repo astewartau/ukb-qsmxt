@@ -20,7 +20,7 @@ prefix="$3"
 shift 3
 
 # Default data directory (contains first_data.txt, SN masks, MNI template/mask)
-DATA_DIR="${DATA_DIR:-$(dirname "$0")/data}"
+DATA_DIR="/home/uqclauve/data"
 
 # Parse optional arguments
 while [[ $# -gt 0 ]]; do
@@ -37,13 +37,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Verify required data files exist
-for f in "$DATA_DIR/first_data.txt" "$DATA_DIR/SN_mask_Left.nii.gz" "$DATA_DIR/SN_mask_Right.nii.gz" "$DATA_DIR/MNI152_T1_1mm.nii.gz" "$DATA_DIR/MNI152_T1_1mm_brain_mask.nii.gz"; do
-    if [ ! -f "$f" ]; then
-        echo "ERROR: Required data file not found: $f"
-        echo "Set --data-dir or DATA_DIR to the directory containing atlas files."
-        exit 1
-    fi
-done
+# for f in "$DATA_DIR/first_data.txt" "$DATA_DIR/SN_mask_Left.nii.gz" "$DATA_DIR/SN_mask_Right.nii.gz" "$DATA_DIR/MNI152_T1_1mm.nii.gz" "$DATA_DIR/MNI152_T1_1mm_brain_mask.nii.gz"; do
+#     if [ ! -f "$f" ]; then
+#         echo "ERROR: Required data file not found: $f"
+#         echo "Set --data-dir or DATA_DIR to the directory containing atlas files."
+#         exit 1
+#     fi
+# done
 
 # QSM to T1 registration (matches UKB: FLIRT with SWI_to_T1.mat, spline interpolation)
 flirt -in "$DEST/ses-${instance}/${prefix}_CSFref.nii.gz" \
@@ -69,6 +69,8 @@ if [ ! -f "$DEST/ses-${instance}/${prefix}_CSFref_to_MNI.nii.gz" ] || [ "$(fslst
     exit 1
 fi
 
+# mri_convert "${DEST}/ses-${instance}/aseg.mgz" "${DEST}/ses-${instance}/seg.nii.gz"
+
 # Brain mask in MNI space
 fslmaths "$DEST/ses-${instance}/${prefix}_CSFref_to_MNI.nii.gz" -mul "$DATA_DIR/MNI152_T1_1mm_brain_mask.nii.gz" "$DEST/ses-${instance}/${prefix}_CSFref_to_MNI.nii.gz"
 
@@ -83,9 +85,11 @@ while read STRUCT THR1 THR2 ; do
 done < "$DATA_DIR/regions_fast.txt"
 
 # Subcortical ROI extraction using FreeSurfer segmentation 
-while read STRUCT THR1 THR2 ; do
-    fslmaths "$DEST/ses-${instance}/aseg.nii.gz" -thr ${THR1} -uthr ${THR2} -bin -kernel 2D -ero -bin -mul "$DEST/ses-${instance}/${prefix}_CSFref_to_T1.nii.gz" "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}"
-done < "$DATA_DIR/regions_free_surfer.txt"
+
+## FreeSurfer is not in the right space
+# while read STRUCT THR1 THR2 ; do
+#     fslmaths "$DEST/ses-${instance}/seg.nii.gz" -thr ${THR1} -uthr ${THR2} -bin -kernel 2D -ero -bin -mul "$DEST/ses-${instance}/${prefix}_CSFref_to_T1.nii.gz" "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}"
+# done < "$DATA_DIR/regions_free_surfer.txt"
 
 
 
@@ -117,7 +121,7 @@ fslmaths \
 # Extract median QSM per subcortical ROI
 vals_first=""
 for STRUCT in $(awk '{print $1}' "$DATA_DIR/regions_first.txt") ; do
-    vals_first="${vals} $(fslstats "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}.nii.gz" -P 50)"
+    vals_first="${vals_first} $(fslstats "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}.nii.gz" -P 50)"
 done
 
 vals_fast=""
@@ -125,16 +129,16 @@ for STRUCT in $(awk '{print $1}' "$DATA_DIR/regions_fast.txt") ; do
     vals_fast="${vals_fast} $(fslstats "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}.nii.gz" -P 50)"
 done
 
-vals_freesurfer=""
-for STRUCT in $(awk '{print $1}' "$DATA_DIR/regions_free_surfer.txt") ; do
-    vals_freesurfer="${vals_fast} $(fslstats "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}.nii.gz" -P 50)"
-done
+# vals_freesurfer=""
+# for STRUCT in $(awk '{print $1}' "$DATA_DIR/regions_free_surfer.txt") ; do
+#     vals_freesurfer="${vals_fast} $(fslstats "$DEST/ses-${instance}/ROI_${prefix}_${STRUCT}.nii.gz" -P 50)"
+# done
 
 # Extract median QSM from SN
 val15=$(fslstats "$DEST/ses-${instance}/${prefix}_SN_L.nii.gz" -P 50)
 val16=$(fslstats "$DEST/ses-${instance}/${prefix}_SN_R.nii.gz" -P 50)
 
-echo "${vals_first} ${vals_fast} ${vals_freesurfer} ${val15} ${val16}" > "$DEST/ses-${instance}/${prefix}_CSFref_IDPs.txt"
+echo "${vals_first} ${vals_fast} ${val15} ${val16}" > "$DEST/ses-${instance}/${prefix}_CSFref_IDPs.txt"
 
 echo ""
 echo "Extraction finished for ${prefix} session ${instance}."

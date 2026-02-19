@@ -9,7 +9,7 @@
 #SBATCH --partition=general
 #SBATCH --account=a_ai_collab
 #SBATCH --output=qsm_process_%A_%a.out
-#SBATCH --array=1-3
+#SBATCH --array=1
 
 set -e
 
@@ -17,23 +17,24 @@ start=$(date +%s)
 
 # ---- Configuration ----
 CONDA_ENV="${CONDA_ENV:-qsmxt}"
-SUBJECT_LIST="${SUBJECT_LIST:-ids_multi_sessions_20219.txt}"
-DATA_DIR="${DATA_DIR:-$(dirname "$0")/data}"
-SCRATCH_DIR="${SCRATCH_DIR:-/scratch/user/$USER}"
+SUBJECT_LIST="/home/uqclauve/data/ids_multi_sessions_20219.txt"             #"${SUBJECT_LIST:-ids_multi_sessions_20219.txt}"
+# DATA_DIR="${DATA_DIR:-$(dirname "$0")/data}"
+SCRATCH_DIR="${SCRATCH_DIR:-/scratch/user/$USER/}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # UKB bulk data locations
 UKB_SWI_DICOM_DIR="${UKB_SWI_DICOM_DIR:-/QRISdata/Q8577/bulk/20219}"
 UKB_FS_DIR="${UKB_FS_DIR:-/QRISdata/Q7990/bulk/20263}"
 UKB_WMH_DIR="${UKB_WMH_DIR:-/QRISdata/Q7990/bulk/20253_ASHLEY}"
-QSMXT_OUTPUT="${QSMXT_OUTPUT:-/QRISdata/Q8577/QSMxT}"
+QSMXT_OUTPUT="${QSMXT_OUTPUT:-/QRISdata/Q9014/QSMxT}"
 
 # ---- Environment setup ----
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$CONDA_ENV"
 module load freesurfer
 module load fsl
-module load julia
+#module load julia
+
 
 # ---- Subject selection ----
 mapfile -t repeated_ID < "$SUBJECT_LIST"
@@ -41,82 +42,82 @@ ID=${repeated_ID[$SLURM_ARRAY_TASK_ID-1]}
 
 echo "Job $SLURM_ARRAY_TASK_ID finds ID : $ID"
 
-# ============================================================
-# PART 1: QSMxT Processing (DICOM → QSM)
-# ============================================================
+# # ============================================================
+# # PART 1: QSMxT Processing (DICOM → QSM)
+# # ============================================================
 
-CHEMIN=($(find "${UKB_SWI_DICOM_DIR}"/batch_* -name "*${ID}*.zip"))
+# CHEMIN=($(find "${UKB_SWI_DICOM_DIR}"/batch_* -name "*${ID}*.zip"))
 
-echo "Found:"
-printf " - %s\n" "${CHEMIN[@]}"
+# echo "Found:"
+# printf " - %s\n" "${CHEMIN[@]}"
 
-DEST="${SCRATCH_DIR}/QSM_PROCESSING/${ID}"
+# DEST_QSM="${SCRATCH_DIR}/QSM_PROCESSING/${ID}"
 
-mkdir -p "$DEST"
+# mkdir -p "$DEST_QSM"
 
-for zipfile in "${CHEMIN[@]}"; do
-    echo "Copying: $zipfile → $DEST/"
-    cp "$zipfile" "$DEST/"
+# for zipfile in "${CHEMIN[@]}"; do
+#     echo "Copying: $zipfile → $DEST_QSM/"
+#     cp "$zipfile" "$DEST_QSM/"
 
-    local_zip="$DEST/$(basename "$zipfile")"
-    echo "Unzipping: $local_zip → $DEST/"
-    unzip "$local_zip" -d "$DEST"
+#     local_zip="$DEST_QSM/$(basename "$zipfile")"
+#     echo "Unzipping: $local_zip → $DEST_QSM/"
+#     unzip "$local_zip" "*.dcm" -d "$DEST_QSM" 
 
-    echo "Removing local copy: $local_zip"
-    rm -v "$local_zip"
-done
+#     echo "Removing local copy: $local_zip"
+#     rm -v "$local_zip"
+# done
 
-BIDSFOLDER="${SCRATCH_DIR}/QSM_PROCESSING/bids_${ID}"
+# BIDSFOLDER="${SCRATCH_DIR}/QSM_PROCESSING/bids_${ID}"
 
-dicom-convert "$DEST" "$BIDSFOLDER" --auto_yes
-rm -r "$DEST"
+# dicom-convert "$DEST_QSM" "$BIDSFOLDER" --auto_yes
+# rm -r "$DEST_QSM"
 
-# Fix mis-named subjects in BIDS
-for wrongsub in "${BIDSFOLDER}"/sub-*; do
-    echo "$wrongsub"
-    [ "$wrongsub" = "${BIDSFOLDER}/sub-${ID}" ] && continue
+# # Fix mis-named subjects in BIDS
+# for wrongsub in "${BIDSFOLDER}"/sub-*; do
+#     echo "$wrongsub"
+#     [ "$wrongsub" = "${BIDSFOLDER}/sub-${ID}" ] && continue
 
-    SESSION=$(basename "$(find "$wrongsub" -maxdepth 1 -type d -name 'ses-*')")
+#     SESSION=$(basename "$(find "$wrongsub" -maxdepth 1 -type d -name 'ses-*')")
 
-    mkdir -p "${BIDSFOLDER}/sub-${ID}/${SESSION}/anat"
+#     mkdir -p "${BIDSFOLDER}/sub-${ID}/${SESSION}/anat"
 
-    find "$wrongsub/$SESSION/anat" -type f | while read -r f; do
-        base=$(basename "$f")
-        new_name=$(echo "$base" | sed "s/sub-[a-zA-Z0-9]\+/sub-${ID}/")
-        mv "$f" "${BIDSFOLDER}/sub-${ID}/${SESSION}/anat/${new_name}"
-    done
-    rm -rf "$wrongsub"
-done
+#     find "$wrongsub/$SESSION/anat" -type f | while read -r f; do
+#         base=$(basename "$f")
+#         new_name=$(echo "$base" | sed "s/sub-[a-zA-Z0-9]\+/sub-${ID}/")
+#         mv "$f" "${BIDSFOLDER}/sub-${ID}/${SESSION}/anat/${new_name}"
+#     done
+#     rm -rf "$wrongsub"
+# done
 
-# Remove incomplete acquisitions (missing CoilString in JSON)
-for json in $(grep -rL "CoilString" "${BIDSFOLDER}/sub-${ID}/ses-"*/anat/*.json 2>/dev/null); do
-    rm -v "$json" "${json%.json}.nii"
-done
+# # Remove incomplete acquisitions (missing CoilString in JSON)
+# for json in $(grep -rL "CoilString" "${BIDSFOLDER}/sub-${ID}/ses-"*/anat/*.json 2>/dev/null); do
+#     rm -v "$json" "${json%.json}.nii"
+# done
 
-# Run QSMxT
-qsmxt "$BIDSFOLDER" --do_qsm --do_t2starmap --do_r2starmap --do_swi --auto_yes
+# # Run QSMxT
+# qsmxt "$BIDSFOLDER" --do_qsm --do_t2starmap --do_r2starmap --do_swi --auto_yes
 
-# Copy results to output collection
-cp -r "${BIDSFOLDER}"/derivatives/qsmxt*/sub* "${QSMXT_OUTPUT}/"
-cp -f "${BIDSFOLDER}"/derivatives/qsmxt*/command.txt "${QSMXT_OUTPUT}/sub-${ID}"
+# # Copy results to output collection
+# cp -r "${BIDSFOLDER}"/derivatives/qsmxt*/sub* "${QSMXT_OUTPUT}/"
+# cp -f "${BIDSFOLDER}"/derivatives/qsmxt*/command.txt "${QSMXT_OUTPUT}/sub-${ID}"
 
-for sesdir in "${BIDSFOLDER}/sub-${ID}"/ses-*; do
-    ses=$(basename "$sesdir")
-    cp -f "$sesdir"/anat/*echo-01_part-mag_MEGRE.nii "${QSMXT_OUTPUT}/sub-${ID}/${ses}/"
-done
+# for sesdir in "${BIDSFOLDER}/sub-${ID}"/ses-*; do
+#     ses=$(basename "$sesdir")
+#     cp -f "$sesdir"/anat/*echo-01_part-mag_MEGRE.nii "${QSMXT_OUTPUT}/sub-${ID}/${ses}/"
+# done
 
-rm -r "$BIDSFOLDER"
+# rm -r "$BIDSFOLDER"
 
-# ============================================================
-# PART 2: Region-wise Analysis (FreeSurfer-based)
-# ============================================================
+# # ============================================================
+# # PART 2: Region-wise Analysis (FreeSurfer-based)
+# # ============================================================
 
 
 DEST="/home/uqclauve/data/UKB_PROCESSING/${ID}"
 
-## FIND T1 & FIRST/FAST 
+# ## FIND T1 & FIRST/FAST 
 
-CHEMIN_T1=($(grep -P "^${ID}\t" /home/uqclauve/data/prelookout_20252.txt | cut -f3))
+CHEMIN_T1=($(grep -P "^${ID}\t" /home/uqclauve/data/prelookout_20252.txt | cut -f4))
 
 echo "For T1 found:"
 printf " - %s\n" "${CHEMIN_T1[@]}"
@@ -141,9 +142,9 @@ done
 
 
 
-## UKB PROCESSED QSM
+# ## UKB PROCESSED QSM
 
-CHEMIN_QSM=($(grep -P "^${ID}\t" /home/uqclauve/data/prelookout_26301.txt | cut -f3))
+CHEMIN_QSM=($(grep -P "^${ID}\t" /home/uqclauve/data/prelookout_26301.txt | cut -f4))
 echo "For QSM Found:"
 printf " - %s\n" "${CHEMIN_QSM[@]}"
 
@@ -161,9 +162,9 @@ for zipfile in "${CHEMIN_QSM[@]}"; do
 done
 
 
-## TRANSFORMATION MATRICE
+# ## TRANSFORMATION MATRICE
 
-CHEMIN_SWI=($(grep -P "^${ID}\t" /home/uqclauve/data/prelookout_20251.txt | cut -f3))
+CHEMIN_SWI=($(grep -P "^${ID}\t" /home/uqclauve/data/prelookout_20251.txt | cut -f4))
 
 echo "For SWI Found:"
 printf " - %s\n" "${CHEMIN_SWI[@]}"
@@ -181,21 +182,21 @@ for zipfile in "${CHEMIN_SWI[@]}"; do
 done
 
 
-## FREE SURFER SEG
+# ## FREE SURFER SEG
 
-CHEMIN_FREE=($(grep -P "^${ID}\t" /home/uqclauve/data/prelookout_20263.txt | cut -f3))
+# CHEMIN_FREE=($(grep -P "^${ID}\t" /home/uqclauve/data/prelookout_20263.txt | cut -f4))
 
-for zipfile in "${CHEMIN_FREE[@]}"; do
-    echo "Extracting SWI from: $zipfile"
-    instance=$(basename "$zipfile" | cut -d'_' -f3)
-    instance=$((instance - 1))
-    echo " → Session : $instance"
+# for zipfile in "${CHEMIN_FREE[@]}"; do
+#     echo "Extracting SWI from: $zipfile"
+#     instance=$(basename "$zipfile" | cut -d'_' -f3)
+#     instance=$((instance - 1))
+#     echo " → Session : $instance"
 
-    local_zip="/scratch/user/uqclauve/$(basename "$zipfile")"
-    rsync -ah --progress "$zipfile" "$local_zip"
-    unzip -j "$local_zip" "*/mri/aseg.mgz" -d "$DEST/ses-${instance}/"
-    rm "$local_zip"
-done
+#     local_zip="/scratch/user/uqclauve/$(basename "$zipfile")"
+#     rsync -ah --progress "$zipfile" "$local_zip"
+#     unzip -j "$local_zip" "*/mri/aseg.mgz" -d "$DEST/ses-${instance}/"
+#     rm "$local_zip"
+# done
 
 
 mapfile -t SESSIONS < <(
@@ -205,24 +206,27 @@ mapfile -t SESSIONS < <(
 )
 
 ## EXTRACTION OF IDPs
+printf '%s\n' "${SESSIONS[@]}"
 
 i=1
 for date in "${SESSIONS[@]}"; do
 
-    QSMxT=$(ls /QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/anat/*MEGRE_Chimap.nii)
+    QSMxT=(/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/anat/*MEGRE_Chimap.nii)
+    QSMxT="${QSMxT[0]}"
 
-    if [ -z $(find "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}" -type f -name "QSMxT_CSFref_IDPs.txt") ]; then
-        continue
-    fi
+    # if [ -z $(find "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}" -type f -name "QSMxT_CSFref_IDPs.txt") ]; then
+    #     continue
+    # fi
 
     /home/uqclauve/data/generate_qsmxt_csfref.sh "${DEST}/ses-${i}/" "${QSMxT}"
-    /home/uqclauve/data/generate_idp_txt.sh "${DEST}" $i "QSMxT"
-    /home/uqclauve/data/generate_idp_txt.sh "${DEST}" $i "UKBQSM"
+    /home/uqclauve/data/ukb-qsmxt/generate_idp_txt.sh "${DEST}" $i "QSMxT"
+    /home/uqclauve/data/ukb-qsmxt/generate_idp_txt.sh "${DEST}" $i "UKBQSM"
     
+    echo "should be generated for $i $date"
 
-    cp "$DEST/ses-${i}/UKB_CSFref_to_T1.nii.gz" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
+    cp "$DEST/ses-${i}/UKBQSM_CSFref_to_T1.nii.gz" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
     cp "$DEST/ses-${i}/QSMxT_CSFref_to_T1.nii.gz" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/" 
-    cp "$DEST/ses-${i}/UKB_CSFref_to_MNI.nii.gz" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
+    cp "$DEST/ses-${i}/UKBQSM_CSFref_to_MNI.nii.gz" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
     cp "$DEST/ses-${i}/QSMxT_CSFref_to_MNI.nii.gz" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
     cp "$DEST/ses-${i}/QSMxT_CSF.txt" "/QRISdata/Q9014/QSMxT/sub-${ID}/ses-${date}/"
 
@@ -232,7 +236,7 @@ for date in "${SESSIONS[@]}"; do
     ((i++))
 done
 
-rm -r ${DEST}
+#rm -r ${DEST}
 
 
 
