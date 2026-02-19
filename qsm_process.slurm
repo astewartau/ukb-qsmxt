@@ -46,67 +46,71 @@ echo "Job $SLURM_ARRAY_TASK_ID finds ID : $ID"
 # # PART 1: QSMxT Processing (DICOM → QSM)
 # # ============================================================
 
-# CHEMIN=($(find "${UKB_SWI_DICOM_DIR}"/batch_* -name "*${ID}*.zip"))
+if compgen -G "/QRISdata/Q9014/QSMxT/sub-${ID}/*/anat/*MEGRE_Chimap.nii" > /dev/null; then
+    echo "QSM already processed"
+else
+    CHEMIN=($(find "${UKB_SWI_DICOM_DIR}"/batch_* -name "*${ID}*.zip"))
 
-# echo "Found:"
-# printf " - %s\n" "${CHEMIN[@]}"
+    echo "Found:"
+    printf " - %s\n" "${CHEMIN[@]}"
 
-# DEST_QSM="${SCRATCH_DIR}/QSM_PROCESSING/${ID}"
+    DEST_QSM="${SCRATCH_DIR}/QSM_PROCESSING/${ID}"
 
-# mkdir -p "$DEST_QSM"
+    mkdir -p "$DEST_QSM"
 
-# for zipfile in "${CHEMIN[@]}"; do
-#     echo "Copying: $zipfile → $DEST_QSM/"
-#     cp "$zipfile" "$DEST_QSM/"
+    for zipfile in "${CHEMIN[@]}"; do
+        echo "Copying: $zipfile → $DEST_QSM/"
+        cp "$zipfile" "$DEST_QSM/"
 
-#     local_zip="$DEST_QSM/$(basename "$zipfile")"
-#     echo "Unzipping: $local_zip → $DEST_QSM/"
-#     unzip "$local_zip" "*.dcm" -d "$DEST_QSM" 
+        local_zip="$DEST_QSM/$(basename "$zipfile")"
+        echo "Unzipping: $local_zip → $DEST_QSM/"
+        unzip "$local_zip" "*.dcm" -d "$DEST_QSM" 
 
-#     echo "Removing local copy: $local_zip"
-#     rm -v "$local_zip"
-# done
+        echo "Removing local copy: $local_zip"
+        rm -v "$local_zip"
+    done
 
-# BIDSFOLDER="${SCRATCH_DIR}/QSM_PROCESSING/bids_${ID}"
+    BIDSFOLDER="${SCRATCH_DIR}/QSM_PROCESSING/bids_${ID}"
 
-# dicom-convert "$DEST_QSM" "$BIDSFOLDER" --auto_yes
-# rm -r "$DEST_QSM"
+    dicom-convert "$DEST_QSM" "$BIDSFOLDER" --auto_yes
+    rm -r "$DEST_QSM"
 
-# # Fix mis-named subjects in BIDS
-# for wrongsub in "${BIDSFOLDER}"/sub-*; do
-#     echo "$wrongsub"
-#     [ "$wrongsub" = "${BIDSFOLDER}/sub-${ID}" ] && continue
+    # Fix mis-named subjects in BIDS
+    for wrongsub in "${BIDSFOLDER}"/sub-*; do
+        echo "$wrongsub"
+        [ "$wrongsub" = "${BIDSFOLDER}/sub-${ID}" ] && continue
 
-#     SESSION=$(basename "$(find "$wrongsub" -maxdepth 1 -type d -name 'ses-*')")
+        SESSION=$(basename "$(find "$wrongsub" -maxdepth 1 -type d -name 'ses-*')")
 
-#     mkdir -p "${BIDSFOLDER}/sub-${ID}/${SESSION}/anat"
+        mkdir -p "${BIDSFOLDER}/sub-${ID}/${SESSION}/anat"
 
-#     find "$wrongsub/$SESSION/anat" -type f | while read -r f; do
-#         base=$(basename "$f")
-#         new_name=$(echo "$base" | sed "s/sub-[a-zA-Z0-9]\+/sub-${ID}/")
-#         mv "$f" "${BIDSFOLDER}/sub-${ID}/${SESSION}/anat/${new_name}"
-#     done
-#     rm -rf "$wrongsub"
-# done
+        find "$wrongsub/$SESSION/anat" -type f | while read -r f; do
+            base=$(basename "$f")
+            new_name=$(echo "$base" | sed "s/sub-[a-zA-Z0-9]\+/sub-${ID}/")
+            mv "$f" "${BIDSFOLDER}/sub-${ID}/${SESSION}/anat/${new_name}"
+        done
+        rm -rf "$wrongsub"
+    done
 
-# # Remove incomplete acquisitions (missing CoilString in JSON)
-# for json in $(grep -rL "CoilString" "${BIDSFOLDER}/sub-${ID}/ses-"*/anat/*.json 2>/dev/null); do
-#     rm -v "$json" "${json%.json}.nii"
-# done
+    # Remove incomplete acquisitions (missing CoilString in JSON)
+    for json in $(grep -rL "CoilString" "${BIDSFOLDER}/sub-${ID}/ses-"*/anat/*.json 2>/dev/null); do
+        rm -v "$json" "${json%.json}.nii"
+    done
 
-# # Run QSMxT
-# qsmxt "$BIDSFOLDER" --do_qsm --do_t2starmap --do_r2starmap --do_swi --auto_yes
+    # Run QSMxT
+    qsmxt "$BIDSFOLDER" --do_qsm --do_t2starmap --do_r2starmap --do_swi --auto_yes
 
-# # Copy results to output collection
-# cp -r "${BIDSFOLDER}"/derivatives/qsmxt*/sub* "${QSMXT_OUTPUT}/"
-# cp -f "${BIDSFOLDER}"/derivatives/qsmxt*/command.txt "${QSMXT_OUTPUT}/sub-${ID}"
+    # Copy results to output collection
+    cp -r "${BIDSFOLDER}"/derivatives/qsmxt*/sub* "${QSMXT_OUTPUT}/"
+    cp -f "${BIDSFOLDER}"/derivatives/qsmxt*/command.txt "${QSMXT_OUTPUT}/sub-${ID}"
 
-# for sesdir in "${BIDSFOLDER}/sub-${ID}"/ses-*; do
-#     ses=$(basename "$sesdir")
-#     cp -f "$sesdir"/anat/*echo-01_part-mag_MEGRE.nii "${QSMXT_OUTPUT}/sub-${ID}/${ses}/"
-# done
+    for sesdir in "${BIDSFOLDER}/sub-${ID}"/ses-*; do
+        ses=$(basename "$sesdir")
+        cp -f "$sesdir"/anat/*echo-01_part-mag_MEGRE.nii "${QSMXT_OUTPUT}/sub-${ID}/${ses}/"
+    done
 
-# rm -r "$BIDSFOLDER"
+    rm -r "$BIDSFOLDER"
+fi
 
 # # ============================================================
 # # PART 2: Region-wise Analysis (FreeSurfer-based)
@@ -236,7 +240,7 @@ for date in "${SESSIONS[@]}"; do
     ((i++))
 done
 
-#rm -r ${DEST}
+rm -r ${DEST}
 
 
 
